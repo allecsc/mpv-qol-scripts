@@ -59,7 +59,7 @@ local options = require 'mp.options'
 local opts = {
     auto_skip = false,
     skip_categories = "opening;ending;preview;recap",
-    blackdetect_notify_args = "d=0.0001:pic_th=0.98",
+    blackdetect_notify_args = "d=0.1:pic_th=0.98",
     blackdetect_skip_args = "d=0.5:pic_th=0.90:pix_th=0.10", -- d=0.5:pic_th=0.90:pix_th=0.15
     silencedetect_notify_args = "n=-45dB:d=0.7",
     silencedetect_skip_args = "n=-30dB:d=1.0",
