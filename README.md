@@ -150,9 +150,9 @@ Go right to your favorite part! This script provides a polished, pop-up notifica
   - **notify_skip_click** -> Interactive button, skip is triggered by **clicking the notification** or by **pressing Tab**. _Will conflict with UOSC since it's built on it._
 - Parallel detection system with silence detection and black frame detection
 - Improved notification detection
-- Less false positives
-- Should work with most media now, not just anime. _Not fully tested yet_
-
+- Some false positives are still expected, but they will disappear quickly.
+- Works with all media, not just anime.
+  
 <details>
 <summary><strong>📄 Complete Changelog</strong></summary>
 
