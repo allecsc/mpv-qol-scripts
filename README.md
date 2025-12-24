@@ -183,226 +183,291 @@ Go right to your favorite part! This script provides a polished, pop-up notifica
 
 </br>
 
-# 🎯 Smart Subtitle Selector
+# 🎯 Smart Track Selector
 
-Ends the nightmare of manually cycling through subtitle tracks. This script intelligently scans and selects the best subtitle track based on your preferences, automatically rejecting "Forced" or "Commentary" tracks.  
+Ends the nightmare of manually cycling through audio and subtitle tracks. This script intelligently scans and selects the best tracks based on your preferences, with full support for **non-English languages** (Cyrillic, Japanese, etc.).
 
 <details>
 <summary><strong>Find out how it works!</strong></summary>
 
-  > *An intelligent script to automatically select the correct subtitle track.*
+> _An intelligent script to automatically select the correct audio and subtitle tracks._
 
 ### 😤 The Problem This Solves
 
-When playing media with multiple subtitle tracks, MPV's default behavior often selects an undesirable track, such as "Signs & Songs" or "Forced," leading to a frustrating user experience. The user must then manually cycle through all available tracks on every single file to find the main dialogue track.
+When playing media with multiple tracks, MPV's default behavior often selects undesirable options:
+
+- **Subtitles:** "Signs & Songs" instead of full dialogue
+- **Audio:** Russian dubs instead of Japanese original
+
+The user must then manually cycle through all available tracks on every file.
 
 ### ✨ The Solution
 
-This script replaces MPV's default logic with an intelligent, priority-based system. It analyzes the titles of all available subtitle tracks and automatically selects the one that best matches the user's configured preferences, ignoring commentary or utility tracks.
+This script replaces MPV's default logic with an intelligent, priority-based system that:
 
-This provides a "set it and forget it" solution that ensures the correct dialogue track is selected automatically, every time.
+- Analyzes track titles and languages
+- Scores tracks based on your preferences
+- Rejects unwanted languages and keywords
+- Works with **any language** including Cyrillic (надписи, полные, etc.)
 
-### 🤔 How It Works:
+### 🤔 How It Works
 
-The script ranks subtitle tracks based on a tiered priority system:
+The script uses a **scoring system** to rank tracks:
 
-1.  **Priority Tier:** First, it searches for tracks containing keywords that indicate a primary dialogue track (e.g., "dialogue," "full").
-2.  **Normal Tier:** If no priority tracks are found, it falls back to any standard subtitle track that isn't explicitly rejected.
-3.  **Rejected Tier:** It actively ignores any track containing keywords that mark it as a utility track (e.g., "signs," "songs," "commentary").
+1. **Rejection Phase:** Tracks matching reject keywords or languages are eliminated
+2. **Priority Keywords:** Tracks with priority keywords (e.g., "dialogue", "full") get a bonus
+3. **Language Priority:** Tracks matching preferred languages are ranked by position in your list
+4. **Tiebreaker:** Track order in the file breaks ties
 
-### 😯 Real Example:
+### 😯 Real Example
+
+**Subtitles:**
+
 ```
-Available tracks:
-❌ English [Forced] 
-❌ English [Signs/Songs]
-✅ English [Full Dialogue] ← This one gets picked!
-❌ Commentary Track
+❌ Russian "Надписи" (rejected: matches "надписи" keyword)
+❌ English [Signs/Songs] (rejected: contains "sign")
+✅ English [Full Dialogue] ← Selected!
+❌ Commentary Track (rejected: contains "commentary")
+```
+
+**Audio:**
+
+```
+❌ Russian Dub (rejected: language in reject list)
+✅ Japanese Original ← Selected!
+❌ English Dub (lower priority than Japanese)
 ```
 
 ## 🚀 Quick Setup
 
-### 1\. File Placement
+### 1. File Placement
 
 ```
 📁 portable_config/
 ├── 📁 scripts/
-│   └── 📄 smart_subs.lua
+│   └── 📄 smart_track_selector.lua
 └── 📁 script-opts/
-    └── 📄 smart_subs.conf
+    └── 📄 smart_track_selector.conf
 ```
 
-### 2\. MPV Configuration
+### 2. MPV Configuration
 
-For the script to take control, you must disable MPV's default subtitle selection logic. In your `mpv.conf` file, comment out or delete the following line:
+For the script to take control, disable MPV's default track selection in `mpv.conf`:
 
 ```ini
+# Comment out or remove these lines:
 # sid=auto
+# aid=auto
 ```
 
-### ⚙️ Configuration
+## ⚙️ Configuration
 
-The script's behavior is controlled via `smart_subs.conf`.
+The script's behavior is controlled via `smart_track_selector.conf`.
+
+### Subtitle Settings
 
 ```ini
-# Languages to select, in order of preference.
-preferred_langs = en,eng
+# Language priority (first match wins)
+sub_preferred_langs=en,eng,english
 
-# Keywords that identify a high-priority dialogue track.
-priority_keywords = dialogue,full,complete
+# Keywords that boost track priority
+sub_priority_keywords=dialogue,full,complete,subs,subtitles,default,hearing,sdh
 
-# Keywords that identify tracks to be ignored.
-reject_keywords = signs,songs,commentary
+# Keywords that disqualify tracks
+sub_reject_keywords=sign,song,commentary,forced,karaoke,op,ed,credit
+
+# Languages to never select (leave empty if none)
+sub_reject_langs=
 ```
 
-### Example Configurations:
+### Audio Settings
 
-  * **For Multi-Language Users:** `preferred_langs = en,eng,jp,jpn`
-  * **For Anime Fans:** `reject_keywords = signs,songs,commentary,forced,karaoke`
-  * **For Movie Fans (with accessibility):** `priority_keywords = dialogue,full,complete,sdh`
+```ini
+# Language priority (Japanese first for anime)
+audio_preferred_langs=ja,jpn,japanese,en,eng,english
+
+# Keywords that boost track priority
+audio_priority_keywords=original
+
+# Keywords that disqualify tracks
+audio_reject_keywords=commentary,descriptive,audio description
+
+# Languages to never select (e.g., avoid Russian dubs)
+audio_reject_langs=ru,rus,russian
+```
+
+### Behavior Settings
+
+```ini
+# Skip tracks marked as "forced" (yes/no)
+skip_forced_tracks=yes
+
+# Enable verbose logging for debugging (yes/no)
+debug_logging=no
+```
+
+## 🌍 Non-English Keyword Support
+
+### Case Sensitivity
+
+| Character Type     | Case-Insensitive? | Example                                 |
+| ------------------ | ----------------- | --------------------------------------- |
+| **ASCII** (A-Z)    | ✅ Yes            | `sign` matches "Sign", "SIGNS", "signs" |
+| **Cyrillic** (А-Я) | ❌ No             | `надписи` does NOT match "Надписи"      |
+| **Japanese/Other** | ❌ No             | Exact match only                        |
+
+### How to Handle Non-ASCII Keywords
+
+For Cyrillic, Japanese, or other non-ASCII keywords, **include all case variants** you want to match:
+
+```ini
+# Russian example - include both lowercase and capitalized forms
+sub_reject_keywords=надписи,Надписи,НАДПИСИ,субтитры,Субтитры
+
+# Common patterns (first letter capitalized is most common)
+sub_priority_keywords=полные,Полные,диалоги,Диалоги
+```
+
+> **Tip:** Most track titles use title case (first letter capitalized), so including both `надписи` and `Надписи` covers 99% of cases.
+
+### ASCII Keywords (English, etc.)
+
+ASCII keywords are fully case-insensitive — just use lowercase:
+
+```ini
+# These will match: "Signs", "SIGNS", "signs", "Sign & Song", etc.
+sub_reject_keywords=sign,song,commentary,forced
+```
 
 ## 🔧 Troubleshooting
 
-  * **If the script isn't working:**
-    1.  Ensure the `.lua` and `.conf` files are in the correct folders.
-    2.  Confirm that `sid=auto` has been removed from `mpv.conf`.
-  * **If the wrong track is selected:**
-    1.  Check the track titles in your media file.
-    2.  Add any unwanted keywords (e.g., "Forced") to `reject_keywords`.
-    3.  Add any desired keywords to `priority_keywords`.
-  * **To see the script's decision-making process:**
-    1.  Enable the MPV console (press `~`). The script will log its actions, such as `Subtitle Selector: Found a PRIORITY track. Activating subtitle track #2`.
+- **Script not working:**
+
+  1. Ensure files are in the correct folders
+  2. Confirm `sid=auto` and `aid=auto` are removed from `mpv.conf`
+
+- **Wrong track selected:**
+
+  1. Enable `debug_logging=yes` in the conf file
+  2. Press `` ` `` to open MPV console and see scoring details
+  3. Add unwanted keywords to the appropriate reject list
+
+- **Non-ASCII keywords not matching:**
+  1. Include all case variants (e.g., `надписи,Надписи`)
+  2. Ensure the conf file is saved as UTF-8 encoding
 
 ## 🎉 The Bottom Line
-Install once, configure to your taste, then never think about subtitles again. The script just quietly does the right thing while you focus on actually watching your content.
+
+Install once, configure to your taste, then never think about track selection again. The script quietly does the right thing while you focus on actually watching your content.
+
+**Features:**
+
+- ✅ Audio track selection with language rejection
+- ✅ Subtitle selection with keyword filtering
+- ✅ Scoring-based selection (more accurate)
+- ✅ Defense mechanism (protects selection for 5 seconds)
+- ✅ Works with any language (see case-sensitivity notes above)
+
 </details>
 </br>
 
 # 🧠 Automatic Profile Manager
 
-This script is the central nervous system of the entire configuration. It completely eliminates the need for manual profile switching by intelligently analyzing every file you play and applying the perfect profile for the content. 
+This script is the central nervous system of your mpv configuration. It eliminates manual profile switching by intelligently analyzing every file you play and applying the perfect profile for the content.
 
 <details>
 <summary><strong>Find out how it works!</strong></summary>
 
-  > *Because your 4K HDR movies shouldn't look like 20-year-old anime (and vice-versa)*
+> _Because your 4K HDR movies shouldn't look like 20-year-old anime (and vice-versa)_
 
 ### 😤 The Annoying Problem This Fixes
 
-You've spent hours crafting the perfect mpv profiles: one for crisp, vibrant anime; another for cinematic, tone-mapped HDR movies; and a third with deinterlacing for that old show you downloaded.
+You've spent hours crafting the perfect mpv profiles: one for crisp anime; another for cinematic HDR movies; and a third for legacy content.
 
-But every time you open a file, you have to manually switch between them. Or worse, you try to build a complex `profile-cond` system that constantly breaks, gets into fights with itself, and picks the wrong profile half the time because of weird race conditions. It's a fragile, frustrating mess.
+But every time you open a file, you have to manually switch. Building complex `profile-cond` systems often leads to race conditions and inconsistent results. This script provides a centralized, robust solution.
 
 ### ✨ The Smart Solution
 
-This script is the central brain your mpv config has been missing. It completely takes over the job of profile selection, analyzing every file on load using an advanced, multi-step process that thinks like a human. It applies the **one, correct profile** for what you're watching. No conditions, no fighting, no mistakes.
-
-It's the set-it-and-forget-it system that finally makes your carefully tuned profiles work automatically, correctly distinguishing between anime, movies, and live-action dramas.
+This script takes over profile selection using a multi-step logic that analyzes metadata as it becomes available. It distinguishing between anime, movies, and live-action content with high accuracy.
 
 ### 🤔 How It Thinks (The Decision Tree)
 
-This script's sole purpose is to analyze the video file and apply the appropriate profile from the [**Visually Stunning Predefined Profiles**](https://github.com/allecsc/Stremio-Kai/tree/main?tab=readme-ov-file#-visually-stunning-predefined-profiles) table. It uses a powerful, two-tiered system to identify content with high accuracy and runs a lightning-fast check on every file, asking a series of questions to determine its exact nature and apply the perfect profile:
+The script uses a tiered heuristic system to identify content:
 
 1. **Tier 1: High-Confidence "Fingerprint" Check**
-  * First, it scans for metadata "fingerprints" that are strong indicators of anime. This includes things like:
-      * Styled subtitle formats (`.ass`)
-      * "Signs & Songs" subtitle tracks
-      * Anime-specific chapter names ("Part A", "Part B")
-      * Embedded font files
-  * If it finds any of these, it confidently applies an anime profile. This method is smart enough to correctly identify anime **movies, specials, and even dubbed anime** that would fool simpler checks.
+
+   - Scans for markers specific to animated content (especially fansubs):
+     - **Japanese Audio + Embedded Fonts**: A nearly definitive combination for anime.
+     - **"Signs & Songs" Subtitle Tracks**: Common in anime releases to translate on-screen text.
+   - If found, it applies an anime profile immediately.
 
 2. **Tier 2: General Episodic Check (Fallback)**
-  * If the "fingerprints" aren't found, the script falls back to a safer, more general check. It asks two questions:
-      1.  Does it have an Asian language audio track (Japanese, Chinese, etc.)?
-      2.  Is its duration under 40 minutes (like a typical TV episode)?
-  * If the answer to both is yes, it applies an anime profile. This reliably catches standard anime episodes while correctly **excluding live-action Asian dramas**, which are longer.
+   - If no specific fingerprints are found, it falls back to a duration-based check:
+     - Is it **Japanese or Chinese** audio?
+     - Is the duration **under 40 minutes**?
+   - This reliably catches standard anime/donghua episodes while excluding long-form live-action dramas.
 
-If a file matches neither tier, it receives the standard `sdr` or `hdr` profile.
+If a file matches neither, it receives the standard `sdr` or `hdr` profile based on HDR detection.
 
 ## 🚀 Quick Setup
 
-### 0. Prerequisite: The mpv.conf Connection ⚠️
+### 0. Prerequisite: The `mpv.conf` Connection ⚠️
 
-This script is the "brain" of a profile system, but it is not the profiles themselves. The script's logic is designed to apply profile names (e.g., [anime-hdr], [general]) that must exist in your mpv.conf file.
+The script applies specific profile names that **must** exist in your `mpv.conf`:
 
-  - **For Standalone Use:** It is highly recommended to use the provided [mpv.conf](https://github.com/allecsc/Stremio-Kai/blob/main/portable_config/mpv.conf) from the [Stremio Kai](https://github.com/allecsc/Stremio-Kai) project as a starting point. This file contains all the necessary profiles that this script is pre-configured to look for.
-
-  - **For Advanced Users:** If you have your own extensive mpv.conf, you can adapt the script to your needs. You will need to edit the profile-manager.lua file and change the profile names inside the script's logic to match the names you use in your personal configuration.
-
-This script is powerful, but it needs a well-defined set of profiles to manage. Using the provided mpv.conf is the easiest way to ensure everything works correctly out of the box.
+- `[anime-sdr]`
+- `[anime-hdr]`
+- `[anime-old]` (For 4:3 or interlaced anime)
+- `[hdr]`
+- `[sdr]`
 
 ### **1. Drop The File**
 
 ```
-
 📁 portable_config/
 └── 📁 scripts/
-    └── 📄 profile-manager.lua        ← The Brain
-
+    └── 📄 profile-manager-standalone.lua
 ```
-### **2. Prepare Your `mpv.conf`**
 
-This script is smart, but it's not a mind reader. It needs profiles to apply. Make sure your `mpv.conf` contains the profiles it will look for:
+### **2. Clean Your `mpv.conf`**
 
-* `[anime-sdr]`
-* `[anime-hdr]`
-* `[anime-old]`
-* `[hdr]`
-* `[sdr]`
+**Delete every `profile-cond=...` line** from your `mpv.conf`. The script is now in charge; overlapping conditions will cause conflicts.
 
-### **3. Clean Your `mpv.conf`**
+### ⚙️ Configuration
 
-This is critical. The script is now in charge. **Delete every `profile-cond=...` line** from your `mpv.conf`. If you don't, the old system will fight with the new script and cause chaos.
+A **configuration table** is at the top of the `.lua` file for easy tweaking:
 
-### ⚙️ Configuration Magic
-
-This script has no `.conf` file, but it's still easy to configure. A **configuration table** has been placed at the very top of the `profile-manager.lua` file.
-
-You can easily tweak the script's core logic without digging through the code:
-* Add a new language for detection.
-* Change the 40-minute duration threshold.
-* Add new keywords to look for in chapter or subtitle titles.
-
-Of course, the main way to configure is still by editing your profiles in `mpv.conf`. The script simply acts as the intelligent switch for the settings you've already defined.
-
-Want your `[anime]` profile to be brighter? Edit `[anime]` in `mpv.conf`. Want your `[hdr]` profile to use different tone-mapping? Edit `[hdr]`. The script simply acts as the intelligent switch for the settings you've already defined.
+- Change the 40-minute duration threshold.
+- Add or remove language codes for detection.
+- Add new keywords for subtitle track detection.
 
 ### 🤔 How It Actually Works
 
-When a video starts loading, the script patiently waits in the background.
-
-1.  **🔍 Waits for Clues**: It observes mpv's properties, waiting for **all** the necessary data (`track-list` and `video-params`) to be fully populated. This crushes the race conditions that plague other methods.
-2.  **🧠 Runs Once**: As soon as the data is ready, the script runs its decision tree logic exactly one time.
-3.  **⚡ Takes Action**: It applies the single best profile (e.g., `apply-profile anime-hdr`) and then goes to sleep until the next file is loaded.
-
-### 😯 Real Examples
-
-| If the file is...                                       | The script will apply... | Why?                                                     |
-| ------------------------------------------------------- | ------------------------ | -------------------------------------------------------- |
-| 1080p Anime, Japanese audio, 24 min                     | `[anime-sdr]`            | Tier 2: Asian audio + short duration.                    |
-| 2160p K-Drama, Korean audio, 60 min, HDR                | `[hdr]`                  | Tier 2: Fails duration check. Correctly not anime.       |
-| 1080p Anime Movie, Japanese audio, 120 min, ASS subs    | `[anime-sdr]`            | Tier 1: Detects `.ass` subtitles, ignores long duration. |
-| 720p Dubbed Anime, English audio, 24 min, "Signs" track | `[anime-sdr]`            | Tier 1: Detects "Signs" track, ignores English audio.    |
-| 2160p Hollywood Movie, English audio, HDR               | `[hdr]`                  | Fails both tiers. Correctly not anime.                   |
+1. **🔍 Waiting for Data**: The script observes `video-params`. It waits for all metadata (Primaries, Gamma, Matrix) to populate to ensure perfect HDR detection and stability.
+2. **🧠 Single Run**: Logic runs exactly once per file load.
+3. **⚡ Final Action**: Applies the profile and unregisters itself to save CPU.
+4. **� A/V Resync**: Performs a 0.1s micro-seek 0.5s after load to force audio/video resync (essential when applying heavy shaders/filters).
 
 ## 🔧 Troubleshooting
 
 ### 🤔 **"It's not working!"**
 
-* Make sure the `profile-manager.lua` file is in the correct `scripts` folder.
-* Check that you **deleted all `profile-cond=` lines** from `mpv.conf`. This is the #1 cause of problems.
-* Open the mpv console (`~` key) and look for logs prefixed with `[profile-manager]`. They will tell you exactly what the script is doing.
+- Open the mpv console (`~` key) and look for `[profile-manager]` logs.
+- Ensure `video-params` are being detected (some rare stream formats take longer to populate).
 
 ### 😡 **"It picked the wrong profile!"**
 
-* Look at the log! The script now logs the **exact reason** for its choice.
-* Open the mpv console (`~` key) and look for the `[profile-manager]` logs. You will see a line like:
-    * `Reason: Tier 1 (ASS Subtitle Format)`
-    * `Reason: Tier 2 (Asian Audio + Short Duration)`
-    * `Reason: Default (No Anime Detected)`
-* This tells you *why* it made its choice, allowing you to see if the file's metadata is the problem or if a tweak to the script's configuration table is needed.
+Check the logged reason:
+
+- `Reason: Tier 1 (Embedded Fonts + Japanese Audio)`
+- `Reason: Tier 1 (Subtitle Track: 'Signs & Songs')`
+- `Reason: Tier 2 (Japanese/Chinese Audio + Short Duration)`
+- `Reason: Default (No Anime Detected)`
 
 ## 🎉 The Bottom Line
-Install it, clean your `mpv.conf`, and enjoy a player that is finally smart enough to use your profiles correctly. This is the robust, centralized logic that ends the profile wars for good.
+
+Modern, centralized logic that ends the "profile-cond" wars. Install it, forget it, and enjoy your content exactly as it was meant to be seen.
+
 </details>
 </br>
 
