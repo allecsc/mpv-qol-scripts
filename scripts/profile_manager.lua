@@ -1,24 +1,22 @@
 --[[
-  @name Profile Manager
-  @description Automatically applies mpv profiles based on multi-tiered media analysis
-  @version 3.4
+  @name Profile Manager (Standalone)
+  @description Applies mpv profiles based on heuristic media analysis (no Stremio required)
+  @version 3.3.0
   @author allecsc
   
-  @changelog
-    v3.0 - Initial tiered detection (chapters, fonts, language)
-    v3.1 - Added HDR detection and legacy anime profiles
-    v3.2 - Added reset-on-next-file integration
-    v3.3 - Added Stremio metadata bridge integration
-    v3.4 - Removed chapter detection, single-pass track scan, fixed nil logging
   
+  v3.0 - Initial tiered detection (chapters, fonts, language)
+  v3.1 - Added HDR detection and legacy anime profiles
+  v3.2 - Added reset-on-next-file integration
+  v3.3 - Removed chapter detection, single-pass track scan, fixed nil logging  
   @requires
-    - Stremio Kai's mpv-bridge.js (sends anime-metadata script-message)
     - mpv.conf profiles: anime-sdr, anime-hdr, anime-old, sdr, hdr
   
   Detection Tiers:
-    TIER 0: Stremio DB (MAL/AniList/Kitsu IDs) → 100% accurate
     TIER 1: Japanese Audio + Embedded Fonts/Signs Subs → ~95%
     TIER 2: Japanese/Chinese Audio + Duration <40min → ~80%
+  
+  Note: For Stremio users, use profile-manager.lua instead (has Tier 0 database lookup)
 --]]
 
 local opts = {
@@ -46,18 +44,6 @@ end
 local profile_applied_for_this_file = false
 local observer_registered = false
 local detection_reason = "None"
-
--- Stremio metadata bridge (receives anime IDs from mpv-bridge.js)
-local stremio_metadata = nil
-local utils = require("mp.utils")
-
-mp.register_script_message("anime-metadata", function(json_str)
-    stremio_metadata = utils.parse_json(json_str)
-    if stremio_metadata then
-        log("Received Stremio metadata: is_anime=" .. tostring(stremio_metadata.is_anime) .. 
-            ", MAL=" .. tostring(stremio_metadata.mal_id))
-    end
-end)
 
 -- Enhanced HDR detection function
 local function detect_hdr(video_params)
@@ -108,17 +94,14 @@ function select_and_apply_profile(name, video_params)
     -- 1. Gather all necessary data from mpv
     local track_list = mp.get_property_native('track-list')
     local duration = mp.get_property_native('duration')
-    local chapter_list = mp.get_property_native('chapter-list')
     local attachments = mp.get_property_native('attachments')
 
     -- 2. Data Validation: Abort if critical data is not yet available.
-    -- We need track-list, duration, and basic video params (height) to proceed.
     if not track_list or #track_list == 0 or not video_params or not video_params.h or not duration then
         return
     end
     
-    -- NEW: Wait for video params to be fully loaded (Primaries/Gamma/Matrix)
-    -- This is crucial for HDR detection and stream stability.
+    -- Wait for video params to be fully loaded (Primaries/Gamma/Matrix)
     local primaries = video_params.primaries
     local gamma = video_params.gamma  
     local colormatrix = video_params.colormatrix
@@ -129,7 +112,7 @@ function select_and_apply_profile(name, video_params)
 
     log("--- Starting Profile Evaluation (All data available) ---")
     
-    -- Extract video info early (needed regardless of anime detection)
+    -- Extract video info early
     local height = video_params.h
     local width = video_params.w  
     local is_interlaced = video_params.interlaced or false
@@ -173,25 +156,16 @@ function select_and_apply_profile(name, video_params)
         end
     end
     
-    -- 3. The Decision Logic (Tiered Approach)
+    -- 3. The Decision Logic (Tiered Approach - Heuristics Only)
     local is_anime = false
 
-    -- TIER 0: Stremio Metadata (Highest Priority - from database MAL/AniList IDs)
-    if stremio_metadata and stremio_metadata.is_anime then
-        is_anime = true
-        detection_reason = "Stremio DB (MAL ID: " .. tostring(stremio_metadata.mal_id) .. ")"
-        log("TIER 0 MATCH: " .. detection_reason)
-    end
-
     -- TIER 1: High-Confidence "Fingerprint" Check (Japanese audio + animation markers)
-    if not is_anime then
-        if has_japanese_audio and has_embedded_fonts then
-            is_anime = true
-            detection_reason = "Tier 1 (Embedded Fonts + Japanese Audio)"
-        elseif has_signs_songs_subs then
-            is_anime = true
-            detection_reason = "Tier 1 (Subtitle Track: '" .. signs_songs_track_title .. "')"
-        end
+    if has_japanese_audio and has_embedded_fonts then
+        is_anime = true
+        detection_reason = "Tier 1 (Embedded Fonts + Japanese Audio)"
+    elseif has_signs_songs_subs then
+        is_anime = true
+        detection_reason = "Tier 1 (Subtitle Track: '" .. signs_songs_track_title .. "')"
     end
 
     -- TIER 2: General Episodic Check (Fallback)
@@ -229,7 +203,7 @@ function select_and_apply_profile(name, video_params)
         end
     end
 
-    -- 5. Apply the chosen profile (base profiles inherit from default, so reset is automatic)
+    -- 5. Apply the chosen profile
     if final_profile then
         log("--- FINAL DECISION ---")
         log("Reason: " .. detection_reason)
@@ -263,7 +237,7 @@ function select_and_apply_profile(name, video_params)
     log("Profile applied and observer unregistered.")
 end
 
--- Use a self-unregistering observer to wait for metadata (crucial for streams)
+-- Use a self-unregistering observer to wait for metadata
 mp.observe_property('video-params', 'native', select_and_apply_profile)
 observer_registered = true
 
@@ -282,8 +256,6 @@ mp.register_event('start-file', function()
     
     profile_applied_for_this_file = false
     detection_reason = "None"
-    -- NOTE: Do NOT reset stremio_metadata here - the script-message arrives BEFORE start-file
-    -- and would be wiped. The message is sent per-file anyway, so no stale data risk.
     
     -- Only register if not already registered (prevents observer leak)
     if not observer_registered then
@@ -291,5 +263,3 @@ mp.register_event('start-file', function()
         observer_registered = true
     end
 end)
-
-
