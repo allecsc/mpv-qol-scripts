@@ -1,10 +1,14 @@
 --[[
   @name Smart Track Selector
   @description Automatically selects best audio and subtitle tracks based on configurable preferences
-  @version 1.0.0
+  @version 1.2.0
   @author allecsc
   
   @changelog
+    v1.2.0 - Added prefer_external_subs option: external subs are prioritized
+             over embedded when enabled (useful for manual subtitle files)
+    v1.1.0 - Added external subtitle watching: re-evaluates when new subs
+             load if no preferred language was found initially (10s window)
     v1.0.0 - Complete rewrite from smart_subs.lua
            - Added audio track selection with rejection lists
            - Improved scoring system (language priority + keyword position)
@@ -48,6 +52,7 @@ local config = {
 
     -- Behavior
     skip_forced_tracks = true,
+    prefer_external_subs = false,  -- When true, external subs are preferred over embedded
     debug_logging = false
 }
 
@@ -56,7 +61,9 @@ options.read_options(config, "smart_track_selector")
 --------------------------------------------------------------------------------
 -- 2. CONSTANTS (not configurable)
 --------------------------------------------------------------------------------
-local DEFENSE_DURATION = 5  -- seconds
+local DEFENSE_DURATION = 5   -- seconds to defend selection from external changes
+local WATCH_WINDOW = 10      -- seconds to watch for new subtitle tracks
+local DEBOUNCE_DELAY = 0.3   -- seconds to debounce rapid track-list changes
 local SCRIPT_NAME = "smart_track_selector"
 
 --------------------------------------------------------------------------------
@@ -66,7 +73,12 @@ local state = {
     best_sid = nil,
     best_aid = nil,
     defense_active = false,
-    parsed_config = nil  -- Cache parsed lists
+    parsed_config = nil,      -- Cache parsed lists
+    -- External sub watching
+    initial_sub_count = 0,    -- Sub count at file-loaded
+    watch_active = false,     -- Whether we're watching for new subs
+    debounce_timer = nil,     -- Debounce timer for track-list changes
+    initial_sub_had_lang = false  -- Did initial selection find preferred language?
 }
 
 --------------------------------------------------------------------------------
@@ -209,6 +221,7 @@ local function evaluate_track(track, track_type, cfg)
     -- SCORING
 
     local score = {
+        is_external = track.external or false,  -- External sub bonus (when enabled)
         lang_priority = 0,       -- Lower is better (position in preferred list)
         keyword_priority = 999,  -- Lower is better (position in priority keywords)
         track_order = track.id   -- Tiebreaker
@@ -241,6 +254,11 @@ local function evaluate_track(track, track_type, cfg)
         log_debug(string.format("    = No priority keyword (neutral score %d)", neutral_score))
     end
 
+    -- Log external status if prefer_external_subs is enabled
+    if config.prefer_external_subs and track_type == "sub" and score.is_external then
+        log_debug("    ★ External subtitle (prioritized)")
+    end
+
     return score
 end
 
@@ -249,7 +267,18 @@ local function is_better_score(score_a, score_b)
     if not score_b then return true end
     if not score_a then return false end
 
-    -- Language priority first (lower is better)
+    -- External preference (only for subs, when enabled)
+    -- External subs win over embedded when prefer_external_subs is on
+    if config.prefer_external_subs then
+        if score_a.is_external and not score_b.is_external then
+            return true
+        end
+        if not score_a.is_external and score_b.is_external then
+            return false
+        end
+    end
+
+    -- Language priority (lower is better)
     if score_a.lang_priority < score_b.lang_priority then
         return true
     end
@@ -355,7 +384,106 @@ local function activate_defense()
 end
 
 --------------------------------------------------------------------------------
--- 10. MAIN ORCHESTRATOR
+-- 10. EXTERNAL SUBTITLE WATCHING
+--------------------------------------------------------------------------------
+
+-- Count subtitle tracks in track-list
+local function count_sub_tracks()
+    local track_list = mp.get_property_native("track-list") or {}
+    local count = 0
+    for _, track in ipairs(track_list) do
+        if track.type == "sub" then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+-- Check if the selected subtitle has a preferred language
+local function selection_has_preferred_lang()
+    if not state.best_sid then return false end
+    
+    local track_list = mp.get_property_native("track-list") or {}
+    local cfg = parse_config()["sub"]
+    if not cfg or #cfg.preferred_langs == 0 then return true end  -- No prefs = satisfied
+    
+    for _, track in ipairs(track_list) do
+        if track.id == state.best_sid and track.type == "sub" then
+            local lang = track.lang or ""
+            for _, pref_lang in ipairs(cfg.preferred_langs) do
+                if contains_keyword(lang, pref_lang) then
+                    return true
+                end
+            end
+            break
+        end
+    end
+    return false
+end
+
+-- Handle track-list changes during watch window
+local function on_track_list_change()
+    -- Only care if watching is active
+    if not state.watch_active then return end
+    
+    -- Debounce rapid changes
+    if state.debounce_timer then
+        state.debounce_timer:kill()
+    end
+    
+    state.debounce_timer = mp.add_timeout(DEBOUNCE_DELAY, function()
+        state.debounce_timer = nil
+        
+        local current_count = count_sub_tracks()
+        
+        -- Check if new subs appeared
+        if current_count > state.initial_sub_count then
+            log_debug(string.format("New subs detected: %d → %d", state.initial_sub_count, current_count))
+            
+            -- Only re-evaluate if initial selection didn't have preferred language
+            if not state.initial_sub_had_lang then
+                log_info("Re-evaluating subtitles (external subs loaded)...")
+                
+                -- Temporarily disable defense to allow change
+                local was_defending = state.defense_active
+                state.defense_active = false
+                
+                local new_sid = select_best_track("sub")
+                if new_sid and new_sid ~= state.best_sid then
+                    state.best_sid = new_sid
+                    mp.set_property("sid", state.best_sid)
+                    
+                    -- Check if new selection has preferred language
+                    if selection_has_preferred_lang() then
+                        log_info("Found preferred language in external subs!")
+                        state.initial_sub_had_lang = true  -- Stop re-evaluating
+                    end
+                end
+                
+                -- Restore defense
+                state.defense_active = was_defending
+            end
+            
+            -- Update count for next comparison
+            state.initial_sub_count = current_count
+        end
+    end)
+end
+
+-- Stop watching for external subs
+local function stop_watching()
+    if state.watch_active then
+        state.watch_active = false
+        log_debug("Stopped watching for external subs")
+    end
+    if state.debounce_timer then
+        state.debounce_timer:kill()
+        state.debounce_timer = nil
+    end
+end
+
+--------------------------------------------------------------------------------
+-- 11. MAIN ORCHESTRATOR
 --------------------------------------------------------------------------------
 
 local function on_file_loaded()
@@ -364,17 +492,41 @@ local function on_file_loaded()
     state.best_aid = nil
     state.defense_active = false
     state.parsed_config = nil  -- Re-parse config (allows hot-reload of conf file)
+    state.initial_sub_count = 0
+    state.watch_active = false
+    state.initial_sub_had_lang = false
+    
+    if state.debounce_timer then
+        state.debounce_timer:kill()
+        state.debounce_timer = nil
+    end
+
+    -- Select audio track (audio is usually embedded, no watching needed)
+    state.best_aid = select_best_track("audio")
+    if state.best_aid then
+        mp.set_property("aid", state.best_aid)
+    end
 
     -- Select subtitle track
     state.best_sid = select_best_track("sub")
     if state.best_sid then
         mp.set_property("sid", state.best_sid)
     end
-
-    -- Select audio track
-    state.best_aid = select_best_track("audio")
-    if state.best_aid then
-        mp.set_property("aid", state.best_aid)
+    
+    -- Record initial state for external sub watching
+    state.initial_sub_count = count_sub_tracks()
+    state.initial_sub_had_lang = selection_has_preferred_lang()
+    
+    log_debug(string.format("Initial: %d subs, preferred_lang=%s", 
+        state.initial_sub_count, tostring(state.initial_sub_had_lang)))
+    
+    -- Start watching for external subs if no preferred language yet
+    if not state.initial_sub_had_lang then
+        state.watch_active = true
+        log_info(string.format("No preferred language found, watching for external subs (%ds)...", WATCH_WINDOW))
+        
+        -- Stop watching after window expires
+        mp.add_timeout(WATCH_WINDOW, stop_watching)
     end
 
     -- Activate defense
@@ -382,13 +534,12 @@ local function on_file_loaded()
 end
 
 --------------------------------------------------------------------------------
--- 11. INITIALIZATION & EVENT REGISTRATION
+-- 12. INITIALIZATION & EVENT REGISTRATION
 --------------------------------------------------------------------------------
-
-
 
 mp.register_event("file-loaded", on_file_loaded)
 mp.observe_property("sid", "number", defend_subtitle)
 mp.observe_property("aid", "number", defend_audio)
+mp.observe_property("track-list", "native", on_track_list_change)
 
-log_info("Smart Track Selector initialized (v1.0.0)")
+log_info("Smart Track Selector initialized (v1.2.0)")
