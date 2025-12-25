@@ -215,9 +215,12 @@ This script replaces MPV's default logic with an intelligent, priority-based sys
 The script uses a **scoring system** to rank tracks:
 
 1. **Rejection Phase:** Tracks matching reject keywords or languages are eliminated
-2. **Priority Keywords:** Tracks with priority keywords (e.g., "dialogue", "full") get a bonus
+2. **External Preference:** (Optional) External subs can be prioritized over embedded
 3. **Language Priority:** Tracks matching preferred languages are ranked by position in your list
-4. **Tiebreaker:** Track order in the file breaks ties
+4. **Priority Keywords:** Tracks with keywords (e.g., "dialogue", "full") get a bonus
+5. **Tiebreaker:** Track order in the file breaks ties
+
+> **New in v1.1+:** The script watches for late-loading external subtitles and re-evaluates if a better option appears.
 
 ### 😯 Real Example
 
@@ -302,6 +305,12 @@ audio_reject_langs=ru,rus,russian
 # Skip tracks marked as "forced" (yes/no)
 skip_forced_tracks=yes
 
+# Prefer external subtitle files over embedded tracks (yes/no)
+# When enabled, manually added subtitle files are prioritized over embedded subs.
+# Useful if you frequently add your own subtitle files.
+# Note: Reject keywords still apply - external subs with rejected keywords are skipped.
+prefer_external_subs=no
+
 # Enable verbose logging for debugging (yes/no)
 debug_logging=no
 ```
@@ -366,6 +375,8 @@ Install once, configure to your taste, then never think about track selection ag
 - ✅ Subtitle selection with keyword filtering
 - ✅ Scoring-based selection (more accurate)
 - ✅ Defense mechanism (protects selection for 5 seconds)
+- ✅ External subtitle watching (re-evaluates when late subs load)
+- ✅ External subtitle preference (optional: prioritize manually added subs)
 - ✅ Works with any language (see case-sensitivity notes above)
 
 </details>
