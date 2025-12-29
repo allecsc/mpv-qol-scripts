@@ -1,10 +1,12 @@
 --[[
   @name Smart Track Selector
   @description Automatically selects best audio and subtitle tracks based on configurable preferences
-  @version 1.2.0
+  @version 1.3.0
   @author allecsc
   
   @changelog
+    v1.3.0 - Added match_audio_to_video: prefer audio matching video track language
+           - Added use_forced_for_native: auto-select forced subs for native audio
     v1.2.0 - Added prefer_external_subs option: external subs are prioritized
              over embedded when enabled (useful for manual subtitle files)
     v1.1.0 - Added external subtitle watching: re-evaluates when new subs
@@ -53,6 +55,8 @@ local config = {
     -- Behavior
     skip_forced_tracks = true,
     prefer_external_subs = false,  -- When true, external subs are preferred over embedded
+    match_audio_to_video = false,  -- When true, prefer audio matching video track language
+    use_forced_for_native = false, -- When true, select forced subs when audio matches their language
     debug_logging = false
 }
 
@@ -349,6 +353,107 @@ local function select_best_track(track_type)
     end
 end
 
+-- Get the language of the first video track (used for match_audio_to_video)
+local function get_video_language()
+    local track_list = mp.get_property_native("track-list") or {}
+    for _, track in ipairs(track_list) do
+        if track.type == "video" and track.lang then
+            return track.lang
+        end
+    end
+    return nil
+end
+
+-- Select audio track matching video language (for match_audio_to_video feature)
+-- Returns track ID if found, nil otherwise
+local function select_audio_by_vlang()
+    if not config.match_audio_to_video then return nil end
+    
+    local vlang = get_video_language()
+    if not vlang then
+        log_debug("match_audio_to_video: No video language tag found")
+        return nil
+    end
+    
+    log_info(string.format("Video language detected: %s", vlang))
+    
+    local track_list = mp.get_property_native("track-list") or {}
+    local cfg = parse_config()["audio"]
+    
+    -- Find audio track matching vlang (but not in reject list)
+    for _, track in ipairs(track_list) do
+        if track.type == "audio" and track.lang then
+            -- Check if this track matches vlang
+            if contains_keyword(track.lang, vlang) then
+                -- Check if this language is rejected
+                if cfg and matches_language(track.lang, cfg.reject_langs) then
+                    log_debug(string.format("  Skipping audio #%d (%s) - language rejected", track.id, track.lang))
+                else
+                    -- Check reject keywords
+                    local title = track.title or ""
+                    if cfg and matches_keyword(title, cfg.reject_keywords) then
+                        log_debug(string.format("  Skipping audio #%d (%s) - keyword rejected", track.id, title))
+                    else
+                        log_info(string.format("Selected audio #%d matching video language (%s)", track.id, vlang))
+                        return track.id
+                    end
+                end
+            end
+        end
+    end
+    
+    log_debug("match_audio_to_video: No matching audio track found, falling back to normal selection")
+    return nil
+end
+
+-- Get the language of the selected audio track
+local function get_selected_audio_language()
+    if not state.best_aid then return nil end
+    
+    local track_list = mp.get_property_native("track-list") or {}
+    for _, track in ipairs(track_list) do
+        if track.type == "audio" and track.id == state.best_aid then
+            return track.lang
+        end
+    end
+    return nil
+end
+
+-- Select forced subtitle matching audio language (for use_forced_for_native feature)
+-- Returns track ID if found, nil otherwise
+local function select_forced_sub_for_native()
+    if not config.use_forced_for_native then return nil end
+    
+    local alang = get_selected_audio_language()
+    if not alang then
+        log_debug("use_forced_for_native: No audio language detected")
+        return nil
+    end
+    
+    local track_list = mp.get_property_native("track-list") or {}
+    local cfg = parse_config()["sub"]
+    
+    -- Find forced subtitle matching audio language
+    for _, track in ipairs(track_list) do
+        if track.type == "sub" and track.forced and track.lang then
+            -- Check if this track matches audio language
+            if contains_keyword(track.lang, alang) then
+                -- Check reject keywords (still respect these)
+                local title = track.title or ""
+                if cfg and matches_keyword(title, cfg.reject_keywords) then
+                    log_debug(string.format("  Skipping forced sub #%d - keyword rejected", track.id))
+                else
+                    log_info(string.format("Selected forced sub #%d for native audio (%s)", track.id, alang))
+                    return track.id
+                end
+            end
+        end
+    end
+    
+    log_debug(string.format("use_forced_for_native: No forced sub found for audio language '%s'", alang))
+    return nil
+end
+
 --------------------------------------------------------------------------------
 -- 9. DEFENSE MECHANISM
 --------------------------------------------------------------------------------
@@ -501,14 +606,28 @@ local function on_file_loaded()
         state.debounce_timer = nil
     end
 
-    -- Select audio track (audio is usually embedded, no watching needed)
-    state.best_aid = select_best_track("audio")
+    -- AUDIO SELECTION
+    -- Priority 1: Try to match video language (if match_audio_to_video is enabled)
+    state.best_aid = select_audio_by_vlang()
+    
+    -- Priority 2: Fall back to normal selection
+    if not state.best_aid then
+        state.best_aid = select_best_track("audio")
+    end
+    
     if state.best_aid then
         mp.set_property("aid", state.best_aid)
     end
 
-    -- Select subtitle track
-    state.best_sid = select_best_track("sub")
+    -- SUBTITLE SELECTION
+    -- Priority 1: Try forced sub for native audio (if use_forced_for_native is enabled)
+    state.best_sid = select_forced_sub_for_native()
+    
+    -- Priority 2: Fall back to normal selection
+    if not state.best_sid then
+        state.best_sid = select_best_track("sub")
+    end
+    
     if state.best_sid then
         mp.set_property("sid", state.best_sid)
     end
@@ -521,7 +640,8 @@ local function on_file_loaded()
         state.initial_sub_count, tostring(state.initial_sub_had_lang)))
     
     -- Start watching for external subs if no preferred language yet
-    if not state.initial_sub_had_lang then
+    -- (but not if we already selected a forced sub for native audio)
+    if not state.initial_sub_had_lang and not select_forced_sub_for_native() then
         state.watch_active = true
         log_info(string.format("No preferred language found, watching for external subs (%ds)...", WATCH_WINDOW))
         
@@ -542,4 +662,4 @@ mp.observe_property("sid", "number", defend_subtitle)
 mp.observe_property("aid", "number", defend_audio)
 mp.observe_property("track-list", "native", on_track_list_change)
 
-log_info("Smart Track Selector initialized (v1.2.0)")
+log_info("Smart Track Selector initialized (v1.3.0)")
