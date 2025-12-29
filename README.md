@@ -311,6 +311,17 @@ skip_forced_tracks=yes
 # Note: Reject keywords still apply - external subs with rejected keywords are skipped.
 prefer_external_subs=no
 
+# Match audio to video language (yes/no)
+# When enabled, if the video track has a language tag (vlang), prefer audio
+# matching that language. Useful for watching content in its ORIGINAL language.
+# Example: Video has vlang=de → German audio is selected automatically
+match_audio_to_video=yes
+
+# Use forced subtitles for native audio (yes/no)
+# When enabled, if the selected audio matches a forced subtitle's language,
+# that forced sub is selected. Useful for foreign dialogue in native-language films.
+use_forced_for_native=yes
+
 # Enable verbose logging for debugging (yes/no)
 debug_logging=no
 ```
@@ -377,6 +388,8 @@ Install once, configure to your taste, then never think about track selection ag
 - ✅ Defense mechanism (protects selection for 5 seconds)
 - ✅ External subtitle watching (re-evaluates when late subs load)
 - ✅ External subtitle preference (optional: prioritize manually added subs)
+- ✅ Video language matching (auto-select original audio based on vlang)
+- ✅ Forced subs for native audio (show foreign dialogue subs when watching native)
 - ✅ Works with any language (see case-sensitivity notes above)
 
 </details>
